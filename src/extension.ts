@@ -16,6 +16,41 @@ export function activate(context: vscode.ExtensionContext) {
 		trackingId: string;
 	}
 
+	async function doCodeCompletion(textBeforeCursor, document, model_name, api_key, use_gpu, configuration, position) {
+		let rs;
+			try {
+				// Fetch the code completion based on the text in the user's document
+				rs = await fetchCodeCompletionTexts(textBeforeCursor, document.fileName, model_name, api_key, use_gpu);
+			} catch (err) {
+
+				// Check if it is an issue with API token and if so prompt user to enter a correct one
+				if (err.toString() === "Error: Bearer token is invalid" || err.toString() === "Error: Authorization header is invalid, use 'Bearer API_TOKEN'") {
+					vscode.window.showInputBox(
+						{"prompt": "Please enter your HF API key in order to use Code Clippy", "password": true}
+					).then(apiKey => configuration.update("conf.resource.hfAPIKey", apiKey))
+					
+				}
+				vscode.window.showErrorMessage(err.toString());
+				return { items:[] };
+			}
+
+
+			if (rs == null) {
+				return { items: [] };
+			}
+
+			// Add the generated code to the inline suggestion list
+			const items = new Array<CustomInlineCompletionItem>();
+			for (let i=0; i < rs.completions.length; i++) {
+				items.push({
+					text: rs.completions[i],
+					range: new vscode.Range(position.translate(0, rs.completions.length), position),
+					trackingId: `snippet-${i}`,
+				});
+			}
+			return { items };
+	}
+
 	const provider: vscode.InlineCompletionItemProvider<CustomInlineCompletionItem> = {
 		provideInlineCompletionItems: async (document, position, context, token) => {
 			// Grab the api key from the extension's config
@@ -35,39 +70,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 			// Check if user's state meets one of the trigger criteria
 			if (CSConfig.SEARCH_PHARSE_END.includes(textBeforeCursor[textBeforeCursor.length - 1]) || currLineBeforeCursor.trim() === "") {
-				let rs;
-
-				try {
-					// Fetch the code completion based on the text in the user's document
-					rs = await fetchCodeCompletionTexts(textBeforeCursor, document.fileName, MODEL_NAME, API_KEY, USE_GPU);
-				} catch (err) {
-
-					// Check if it is an issue with API token and if so prompt user to enter a correct one
-					if (err.toString() === "Error: Bearer token is invalid" || err.toString() === "Error: Authorization header is invalid, use 'Bearer API_TOKEN'") {
-						vscode.window.showInputBox(
-							{"prompt": "Please enter your HF API key in order to use Code Clippy", "password": true}
-						).then(apiKey => configuration.update("conf.resource.hfAPIKey", apiKey))
-						
-					}
-					vscode.window.showErrorMessage(err.toString());
-					return { items:[] };
-				}
-
-
-				if (rs == null) {
-					return { items: [] };
-				}
-
-				// Add the generated code to the inline suggestion list
-				const items = new Array<CustomInlineCompletionItem>();
-				for (let i=0; i < rs.completions.length; i++) {
-					items.push({
-						text: rs.completions[i],
-						range: new vscode.Range(position.translate(0, rs.completions.length), position),
-						trackingId: `snippet-${i}`,
-					});
-				}
-				return { items };
+				return doCodeCompletion(textBeforeCursor, document, MODEL_NAME, API_KEY, USE_GPU, configuration, position)
 			}
 			return { items: [] };
 		},
